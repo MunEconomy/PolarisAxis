@@ -1,3 +1,5 @@
+import { HeroAtmosphere } from './HeroAtmosphere';
+
 const statements = [
   'TRACES OF A STEADY DIRECTION',
   'THE ONE WHO READS THE STAR',
@@ -7,9 +9,7 @@ const statements = [
 export function Hero() {
   return (
     <section className="hero" aria-labelledby="hero-title" data-node-id="1:252">
-      <div className="hero__visual" aria-hidden="true" data-node-id="1:254">
-        <img className="hero__particles" src="/assets/hero-particles.png" alt="" fetchPriority="high" />
-      </div>
+      <HeroAtmosphere />
       <h1 className="hero__title" id="hero-title">
         <span className="hero__polaris" data-node-id="1:256">POLARIS</span>
         <span className="hero__axis" data-node-id="1:257">Axis</span>

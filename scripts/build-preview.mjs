@@ -8,9 +8,9 @@ if (!scriptPath || !stylePath) throw new Error('Could not find the built script 
 let script = await readFile(new URL(scriptPath.replace(/^\//, ''), dist), 'utf8');
 let style = await readFile(new URL(stylePath.replace(/^\//, ''), dist), 'utf8');
 for (const [path, mime] of [
-  ['/assets/hero-particles.png', 'image/png'],
   ['/assets/roboto-serif-italic-variable.ttf', 'font/ttf'],
 ]) {
+  if (!script.includes(path) && !style.includes(path)) continue;
   const bytes = await readFile(new URL(path.replace(/^\//, ''), dist));
   const embedded = `data:${mime};base64,${bytes.toString('base64')}`;
   script = script.replaceAll(path, embedded);

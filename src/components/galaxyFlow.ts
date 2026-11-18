@@ -3,6 +3,11 @@ export type GalaxyFlowFrame = {
   height: number;
   dpr: number;
   time: number;
+  x: number;
+  y: number;
+  radius: number;
+  tiltX: number;
+  tiltY: number;
   pointerX: number;
   pointerY: number;
   velocityX: number;
@@ -13,7 +18,7 @@ export type GalaxyFlowFrame = {
 
 const fullscreenVertex = `
 attribute vec2 aPosition;
-varying vec2 vUv;
+varying mediump vec2 vUv;
 void main() {
   vUv = aPosition * .5 + .5;
   gl_Position = vec4(aPosition, 0., 1.);
@@ -25,7 +30,7 @@ precision highp float;
 #else
 precision mediump float;
 #endif
-varying vec2 vUv;
+varying mediump vec2 vUv;
 uniform vec2 uSize;
 uniform float uTime;
 uniform vec4 uPointer;
@@ -57,8 +62,11 @@ void main() {
   vec2 pixel = vec2(vUv.x, 1. - vUv.y) * uSize;
   float scale = max(240., min(uSize.x, uSize.y));
   vec2 p = (pixel - uSize * .5) / scale;
-  float time = uTime * .035;
-  vec2 drift = vec2(time * .24, -time * .16);
+  float time = uTime * .16;
+  vec2 drift = vec2(time * .26, -time * .18);
+  // Broad currents evolve even while the pointer rests, without abrupt light changes.
+  p += vec2(sin(p.y * 3.1 + uTime * .36),
+            cos(p.x * 2.7 - uTime * .29)) * .035;
   float speed = min(length(uVelocity) / 800., 1.);
   vec2 velocity = uVelocity / (length(uVelocity) + 100.);
   vec2 pointerDelta = (pixel - uPointer.xy) / scale;
@@ -88,25 +96,44 @@ void main() {
   wakeLight = min(wakeLight, 1.5);
 
   vec2 q = p * 2.25 + drift;
-  vec2 warp = vec2(cloud(q + vec2(0., time * .12)),
-                   cloud(q + vec2(5.3, -time * .15)));
-  float body = cloud(q + warp * 2.65 + vec2(-time * .14, 0.));
-  float folds = .5 + .5 * sin((p.x * .48 + p.y * .9 + body * 1.3) * 13.);
-  float ribbons = pow(folds, 5.);
-  float veil = smoothstep(.25, .85, body);
+  vec2 warp = vec2(cloud(q + vec2(0., time * .28)),
+                   cloud(q + vec2(5.3, -time * .31)));
+  float body = cloud(q + warp * 2.65 + vec2(-time * .24, 0.));
+  float folds = .5 + .5 * sin((p.x * .48 + p.y * .9 + body * 1.3) * 13. - time * .8);
+  float ribbons = pow(folds, 3.8);
+  float veil = smoothstep(.21, .82, body);
+  // A wide highlight travels along the folds, while slower breathing keeps the sheen soft.
+  float travelingLight = .5 + .5 * sin(p.x * 6.2 + p.y * 4.6 + body * 4. - uTime * .72);
+  travelingLight = smoothstep(.3, 1., travelingLight);
+  float breathing = .88 + .12 * sin(uTime * .46 + body * 4. + p.y * 2.);
   float halo = exp(-dot(pointerDelta, pointerDelta) * 4.5) * uPointer.z;
-  float luminance = .003 + veil * .012 + ribbons * veil * .014;
-  luminance += halo * (.006 + ribbons * .013) + wakeLight * (.008 + ribbons * .016);
-  vec3 silver = mix(vec3(.73, .77, .92), vec3(.93, .95, 1.), body);
+  float luminance = .004 + veil * .018 + ribbons * veil * (.022 + travelingLight * .026);
+  luminance *= breathing;
+  luminance += halo * (.007 + ribbons * .016) + wakeLight * (.009 + ribbons * .019);
+  float pearl = .5 + .5 * sin(p.x * 2.4 - p.y * 1.7 + body * 3. + uTime * .24);
+  vec3 silver = mix(vec3(.8, .78, .94), vec3(.79, .91, .95), pearl);
+  silver = mix(silver, vec3(.95, .96, 1.), .2 + body * .55);
   vec3 color = vec3(.002, .0025, .004) + silver * luminance;
   gl_FragColor = vec4(color, 1.);
 }`;
 
 const compositeFragment = `
 precision mediump float;
-varying vec2 vUv;
+varying mediump vec2 vUv;
 uniform sampler2D uTexture;
-void main() { gl_FragColor = texture2D(uTexture, vUv); }
+uniform vec2 uSize;
+uniform vec2 uCenter;
+uniform float uRadius;
+uniform vec2 uTilt;
+void main() {
+  vec2 pixel = vec2(vUv.x, 1. - vUv.y) * uSize;
+  vec2 center = uCenter + uTilt * uRadius * .22;
+  float r = length((pixel - center) / (uRadius * 1.4));
+  float bloom = exp(-r * r * 5.) * (1. - smoothstep(.6, 1., r));
+  vec3 color = texture2D(uTexture, vUv).rgb;
+  color += vec3(.68, .68, .94) * bloom * .15;
+  gl_FragColor = vec4(color, 1.);
+}
 `;
 
 /** A low-resolution flowing material underneath the independently rendered stardust. */
@@ -170,6 +197,10 @@ export function createGalaxyFlow(gl: WebGLRenderingContext): {
       velocity: gl.getUniformLocation(flowProgram, 'uVelocity'),
       wakes: gl.getUniformLocation(flowProgram, 'uWakes[0]'),
       texture: gl.getUniformLocation(compositeProgram, 'uTexture'),
+      compositeSize: gl.getUniformLocation(compositeProgram, 'uSize'),
+      center: gl.getUniformLocation(compositeProgram, 'uCenter'),
+      radius: gl.getUniformLocation(compositeProgram, 'uRadius'),
+      tilt: gl.getUniformLocation(compositeProgram, 'uTilt'),
     };
     const texture = gl.createTexture();
     if (!texture) throw new Error('Could not allocate galaxy flow texture');
@@ -242,6 +273,10 @@ export function createGalaxyFlow(gl: WebGLRenderingContext): {
         bindGeometry(compositePosition);
         gl.bindTexture(gl.TEXTURE_2D, texture);
         gl.uniform1i(uniforms.texture, 0);
+        gl.uniform2f(uniforms.compositeSize, scene.width, scene.height);
+        gl.uniform2f(uniforms.center, scene.x, scene.y);
+        gl.uniform1f(uniforms.radius, scene.radius);
+        gl.uniform2f(uniforms.tilt, scene.tiltX, scene.tiltY);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         gl.disableVertexAttribArray(compositePosition);
         gl.bindTexture(gl.TEXTURE_2D, null);
